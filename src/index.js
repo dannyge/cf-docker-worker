@@ -1,60 +1,16 @@
 /**
- * Multi-Source Docker Registry Proxy for Cloudflare Workers
+ * Docker Hub Registry Proxy for Cloudflare Workers
  * 
  * 功能特性：
- * 1. 多源支持：基于请求 Host 自动识别上游 (Docker Hub, GHCR, GCR, K8S, Quay)
+ * 1. 专为 Docker Hub 设计：完美适配 Docker Daemon 的 registry-mirrors 规范
  * 2. 安全防盗刷：支持路径 Secret Token 鉴权，非法请求统一 404 隐身
  * 3. 动态认证转换：支持 Docker V2 规范认证 challenge 与 token 自动换取
- * 4. Docker Hub 凭据注入：支持环境变量注入只读 Personal Access Token，避免 429 限流
+ * 4. 凭据注入 (防 429)：支持环境变量注入只读 Personal Access Token，避免匿名配额受限
  */
 
-// ─── 1. 上游源与认证规范定义 ───
-const REGISTRY_UPSTREAMS = {
-  docker: {
-    upstream: 'https://registry-1.docker.io',
-    authUrl: 'https://auth.docker.io/token',
-    service: 'registry.docker.io',
-    isDockerHub: true,
-  },
-  ghcr: {
-    upstream: 'https://ghcr.io',
-    authUrl: 'https://ghcr.io/token',
-    service: 'ghcr.io',
-    isDockerHub: false,
-  },
-  gcr: {
-    upstream: 'https://gcr.io',
-    authUrl: 'https://gcr.io/v2/token',
-    service: 'gcr.io',
-    isDockerHub: false,
-  },
-  k8s: {
-    upstream: 'https://registry.k8s.io',
-    authUrl: 'https://registry.k8s.io/token',
-    service: 'registry.k8s.io',
-    isDockerHub: false,
-  },
-  quay: {
-    upstream: 'https://quay.io',
-    authUrl: 'https://quay.io/v2/auth',
-    service: 'quay.io',
-    isDockerHub: false,
-  },
-};
-
-/**
- * 根据请求 Hostname 动态匹配目标 Registry (支持任意根域名)
- * 例如: ghcr.yourdomain.com -> ghcr, k8s.example.com -> k8s, 默认 -> docker
- */
-function resolveUpstreamConfig(hostname) {
-  const hostLower = hostname.toLowerCase();
-  for (const [key, cfg] of Object.entries(REGISTRY_UPSTREAMS)) {
-    if (hostLower.startsWith(key + '.') || hostLower === key) {
-      return cfg;
-    }
-  }
-  return REGISTRY_UPSTREAMS.docker;
-}
+const DOCKER_HUB_UPSTREAM = 'https://registry-1.docker.io';
+const DOCKER_AUTH_URL = 'https://auth.docker.io/token';
+const DOCKER_SERVICE = 'registry.docker.io';
 
 export default {
   async fetch(request, env, ctx) {
@@ -105,13 +61,11 @@ export default {
       return new Response('Not Found', { status: 404 });
     }
 
-    // ── 步骤 3：根据请求域名选择上游配置 ──
-    const targetConfig = resolveUpstreamConfig(url.hostname);
-    const upstreamUrl = new URL(targetConfig.upstream);
+    const upstreamUrl = new URL(DOCKER_HUB_UPSTREAM);
 
-    // ── 步骤 4：处理 /v2/ 或 /v2 握手探活 ──
+    // ── 步骤 3：处理 /v2/ 或 /v2 握手探活 ──
     if (rawPath === '/v2/' || rawPath === '/v2') {
-      const authHeader = `Bearer realm="${targetConfig.authUrl}",service="${targetConfig.service}"`;
+      const authHeader = `Bearer realm="${DOCKER_AUTH_URL}",service="${DOCKER_SERVICE}"`;
       return new Response(JSON.stringify({ status: 'ok' }), {
         status: 200,
         headers: {
@@ -122,14 +76,14 @@ export default {
       });
     }
 
-    // ── 步骤 5：处理 /token 或 Auth 请求代理（支持 Docker Hub 凭据注入）──
+    // ── 步骤 4：处理 /token 或 Auth 请求代理（支持 Docker Hub 凭据注入）──
     if (rawPath.endsWith('/token') || rawPath.includes('/auth')) {
-      const authTargetUrl = new URL(url.search, targetConfig.authUrl);
+      const authTargetUrl = new URL(url.search, DOCKER_AUTH_URL);
       const authHeaders = new Headers(request.headers);
-      authHeaders.set('Host', new URL(targetConfig.authUrl).host);
+      authHeaders.set('Host', new URL(DOCKER_AUTH_URL).host);
 
-      // 若为 Docker Hub 且配置了专属只读 Token，自动注入 Basic Auth
-      if (targetConfig.isDockerHub && env.DOCKERHUB_USER && env.DOCKERHUB_TOKEN) {
+      // 若配置了专属只读 Token，自动注入 Basic Auth
+      if (env.DOCKERHUB_USER && env.DOCKERHUB_TOKEN) {
         const credentials = btoa(`${env.DOCKERHUB_USER}:${env.DOCKERHUB_TOKEN}`);
         authHeaders.set('Authorization', `Basic ${credentials}`);
       }
@@ -140,7 +94,7 @@ export default {
       });
     }
 
-    // ── 步骤 6：代理转发至真实 Registry 上游 ──
+    // ── 步骤 5：代理转发至 Docker Hub 官方 Registry ──
     const forwardUrl = new URL(rawPath + url.search, upstreamUrl);
     const forwardHeaders = new Headers(request.headers);
     forwardHeaders.set('Host', upstreamUrl.host);
@@ -153,20 +107,18 @@ export default {
       redirect: 'follow',
     });
 
-    // ── 步骤 7：响应头修正与重写（处理重定向与 Www-Authenticate）──
+    // ── 步骤 6：响应头修正与重写（处理重定向与 Www-Authenticate）──
     const responseHeaders = new Headers(response.headers);
     responseHeaders.set('Docker-Distribution-Api-Version', 'registry/2.0');
 
-    // 如果上游返回 401 认证挑战，重写 realm 为当前 Worker 域名或官方认证端点
     if (response.status === 401 && responseHeaders.has('Www-Authenticate')) {
       const wwwAuth = responseHeaders.get('Www-Authenticate');
       const realmMatch = wwwAuth.match(/realm="([^"]+)"/);
       if (realmMatch) {
         const realmUrl = realmMatch[1];
-        // 保持 realm 指向官方认证端点
         responseHeaders.set(
           'Www-Authenticate',
-          wwwAuth.replace(realmUrl, targetConfig.authUrl)
+          wwwAuth.replace(realmUrl, DOCKER_AUTH_URL)
         );
       }
     }
