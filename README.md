@@ -14,7 +14,7 @@
   - `quay.yourdomain.com`   ──> `RedHat Quay (quay.io)`
 - **原生命令体验**：
   - Docker Hub 直接配置为 Docker 的 `registry-mirrors`，原生 `docker pull nginx` **完全免改名、免加前缀**。
-  - 第三方镜像源（GHCR / GCR 等）配合本地 DNS 劫持即可实现原生免翻直连。
+  - 第三方镜像源（GHCR / GCR 等）配合 DNS 本地映射即可实现原生高效拉取。
 - **安全防盗刷保护**：
   - **路径 Secret Token 鉴权**：在镜像拉取路径中加入专属私有密钥（如 `/v2/<SECRET_TOKEN>/...`）。
   - **隐身防御**：未授权访问或非法探测统一返回空 `404 Not Found`，彻底隐藏服务指纹。
@@ -62,7 +62,7 @@
 }
 ```
 
-重启 Docker 服务后，直接拉取官方镜像即可全速直连免翻加速：
+重启 Docker 服务后，直接拉取官方镜像即可全速加速：
 ```bash
 docker pull nginx:latest
 docker pull redis:alpine
@@ -74,6 +74,25 @@ docker pull ubuntu:22.04
 docker pull ghcr.yourdomain.com/owner/repo:tag
 docker pull k8s.yourdomain.com/coredns/coredns:v1.10.1
 ```
+
+---
+
+## 🌐 进阶网络分流与底层存储 CDN 直连优化
+
+Docker Registry 采用 **“元数据与实际镜像层（Blob / Layers）分离”** 的分布式架构。当客户端通过代理拉取元数据后，官方服务器通常会返回重定向，将大体积的数据层导向其全球存储 CDN。
+
+为了最大化利用本地带宽并避免不必要的流量绕路，如果本地网络环境部署了分流策略管理，建议将以下各大官方镜像源的底座存储 CDN 域名配置为 **直接连接（DIRECT）**：
+
+### 推荐直连域名规则列表
+
+| 容器镜像源 | 底层存储 CDN 域名 / 通配符规则 | 说明 |
+| :--- | :--- | :--- |
+| **Docker Hub** | `+.cloudfront.docker.com`<br>`production.cloudfront.docker.com` | AWS CloudFront 全球加速存储节点 |
+| **GitHub (GHCR)** | `pkg-containers.githubusercontent.com`<br>`+.ghcr.io` | GitHub 容器存储 CDN 节点 |
+| **RedHat Quay** | `cdn.quay.io`<br>`+.quay.io` | Quay 镜像层分发节点 |
+| **Kubernetes (K8s)** | `pkgs.k8s.io`<br>`+.k8s.io` | K8s 官方容器存储节点 |
+
+> **配置建议**：确保您的自定义 Worker 域名（如 `*.yourdomain.com`）以及上述 CDN 存储域名均由本地网络直接解析与直连访问，以获得最低延迟与跑满带宽的极速拉取体验。
 
 ---
 
