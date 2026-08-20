@@ -3,9 +3,12 @@ name: Deploy Docker Proxy Worker
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '*.md'
-      - '.gitignore'
+    paths:
+      - 'src/**'
+      - 'wrangler.toml'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy.yml'
 
 jobs:
   deploy:
