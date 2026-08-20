@@ -1,0 +1,7 @@
+name = "cf-docker-worker"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# ── 自定义域名路由映射 ──────────────────────────────────────────────
+# 提示: 部署后在 Cloudflare Dashboard -> Settings -> Triggers -> Custom Domains
+# 绑定您的自定义域名 (如 docker.yourdomain.com, ghcr.yourdomain.com 等) 即可。

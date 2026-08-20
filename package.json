@@ -1,0 +1,17 @@
+{
+  "name": "cf-docker-worker",
+  "version": "1.0.0",
+  "description": "Multi-Source Docker Registry Proxy powered by Cloudflare Workers",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": ["docker", "registry", "cloudflare-workers", "proxy"],
+  "author": "dannyge",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.114.0"
+  }
+}
