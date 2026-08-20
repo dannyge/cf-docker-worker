@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # 1. 监控 npm 依赖 (保持 wrangler 等构建依赖与 Cloudflare 官方最新 API 同步)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(deps)"
+
+  # 2. 监控 GitHub Actions 工作流组件更新
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"
