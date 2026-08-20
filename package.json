@@ -8,10 +8,15 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
-  "keywords": ["docker", "registry", "cloudflare-workers", "proxy"],
+  "keywords": [
+    "docker",
+    "registry",
+    "cloudflare-workers",
+    "proxy"
+  ],
   "author": "dannyge",
   "license": "MIT",
   "devDependencies": {
-    "wrangler": "^3.114.0"
+    "wrangler": "^4.124.0"
   }
 }
